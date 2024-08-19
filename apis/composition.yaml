@@ -76,13 +76,13 @@ spec:
                                 "ProviderConfigUsage"
                               }
 
-                              if obj.status == nil and contains(has_no_status, obj.kind) then
+                              if obj.status == nil or next(obj.status) == nil and contains(has_no_status, obj.kind) then
                                 health_status.status = "Healthy"
                                 health_status.message = "Resource is up-to-date."
                                 return health_status
                               end
 
-                              if obj.status == nil or obj.status.conditions == nil then
+                              if obj.status == nil or next(obj.status) == nil or obj.status.conditions == nil then
                                 if obj.kind == "ProviderConfig" and obj.status.users ~= nil then
                                   health_status.status = "Healthy"
                                   health_status.message = "Resource is in use."
@@ -118,7 +118,7 @@ spec:
                               end
 
                               return health_status
-                        
+
                           "*.upbound.io/*":
                             health.lua: |
                               health_status = {
@@ -140,13 +140,13 @@ spec:
                                 "ProviderConfigUsage"
                               }
 
-                              if obj.status == nil and contains(has_no_status, obj.kind) then
+                              if obj.status == nil or next(obj.status) == nil and contains(has_no_status, obj.kind) then
                                 health_status.status = "Healthy"
                                 health_status.message = "Resource is up-to-date."
                                 return health_status
                               end
 
-                              if obj.status == nil or obj.status.conditions == nil then
+                              if obj.status == nil or next(obj.status) == nil or obj.status.conditions == nil then
                                 if obj.kind == "ProviderConfig" and obj.status.users ~= nil then
                                   health_status.status = "Healthy"
                                   health_status.message = "Resource is in use."
@@ -203,15 +203,22 @@ spec:
                                 "Composition",
                                 "CompositionRevision",
                                 "DeploymentRuntimeConfig",
-                                "ControllerConfig"
+                                "ControllerConfig",
+                                "ProviderConfig",
+                                "ProviderConfigUsage"
                               }
-                              if obj.status == nil and contains(has_no_status, obj.kind) then
+                              if obj.status == nil or next(obj.status) == nil and contains(has_no_status, obj.kind) then
                                   health_status.status = "Healthy"
                                   health_status.message = "Resource is up-to-date."
                                 return health_status
                               end
 
-                              if obj.status == nil or obj.status.conditions == nil then
+                              if obj.status == nil or next(obj.status) == nil or obj.status.conditions == nil then
+                                if obj.kind == "ProviderConfig" and obj.status.users ~= nil then
+                                  health_status.status = "Healthy"
+                                  health_status.message = "Resource is in use."
+                                  return health_status
+                                end
                                 return health_status
                               end
 
@@ -242,8 +249,33 @@ spec:
                               end
 
                               return health_status
+
+                          db.atlasgo.io/AtlasSchema:
+                            health.lua: |
+                              hs = {}
+                              if obj.status ~= nil then
+                                if obj.status.conditions ~= nil then
+                                  for i, condition in ipairs(obj.status.conditions) do
+                                    if condition.type == "Ready" and condition.status == "False" then
+                                      hs.status = "Degraded"
+                                      hs.message = condition.message
+                                      return hs
+                                    end
+                                    if condition.type == "Ready" and condition.status == "True" then
+                                      hs.status = "Healthy"
+                                      hs.message = condition.message
+                                      return hs
+                                    end
+                                  end
+                                end
+                              end
+
+                              hs.status = "Progressing"
+                              hs.message = "Waiting for reconciliation"
+                              return hs
                       params:
                         application.namespaces: cluster-*
+                        server.insecure: true
                     controller:
                       env:
                         - name: ARGOCD_K8S_CLIENT_QPS
@@ -298,17 +330,6 @@ spec:
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.parameters.ingressUrl
                 toFieldPath: spec.forProvider.values.global.domain
-              - type: FromCompositeFieldPath
-                fromFieldPath: spec.parameters.ingressUrl
-                toFieldPath: spec.forProvider.values.server.url
-              - type: FromCompositeFieldPath
-                fromFieldPath: spec.parameters.ingressUrl
-                toFieldPath: spec.forProvider.values.configs.cm.url
-                transforms:
-                  - string:
-                      fmt: 'https://%s'
-                      type: Format
-                    type: string
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.parameters.oidcConfig
                 toFieldPath: spec.forProvider.values.server.config[oidc.config]
